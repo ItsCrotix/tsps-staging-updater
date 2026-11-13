@@ -83,3 +83,9 @@ jobs:
               with:
                   path: .sent
                   key: tsps-staging-${{ steps.main.outputs.sha }}
+
+            # AMP's stop, update and start take several minutes. Holding the concurrency group
+            # makes the next run wait, so a second chain can't start the server mid-update.
+            - name: Give AMP time to finish
+              if: steps.call.outputs.sent == 'true'
+              run: sleep 720
