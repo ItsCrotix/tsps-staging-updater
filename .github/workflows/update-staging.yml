@@ -1,0 +1,65 @@
+name: Update TSPS Staging
+
+# Checks RSPSApp/tsps main every 10 minutes. When it has a commit this workflow hasn't sent yet,
+# it calls the AMP instance's "Webhook Event Received" trigger, which stops, updates and starts
+# the staging world. Each sent commit is remembered as a cache entry, so an unchanged main
+# sends nothing.
+on:
+    schedule:
+        - cron: "*/10 * * * *"
+    workflow_dispatch:
+        inputs:
+            force:
+                description: Send the update even if this commit was already sent
+                type: boolean
+                default: false
+
+permissions: {}
+
+concurrency:
+    group: tsps-staging
+    cancel-in-progress: false
+
+jobs:
+    update:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Read upstream main
+              id: main
+              run: |
+                  sha=$(git ls-remote https://github.com/RSPSApp/tsps.git refs/heads/main | cut -f1)
+                  test -n "$sha"
+                  echo "sha=$sha" >> "$GITHUB_OUTPUT"
+                  echo "upstream main is $sha"
+
+            - name: Check whether it was sent
+              id: sent
+              uses: actions/cache/restore@v4
+              with:
+                  path: .sent
+                  key: tsps-staging-${{ steps.main.outputs.sha }}
+                  lookup-only: true
+
+            - name: Call the AMP webhook
+              if: steps.sent.outputs.cache-hit != 'true' || inputs.force
+              env:
+                  AMP_WEBHOOK_URL: ${{ secrets.AMP_WEBHOOK_URL }}
+                  AMP_WEBHOOK_TOKEN: ${{ secrets.AMP_WEBHOOK_TOKEN }}
+                  SHA: ${{ steps.main.outputs.sha }}
+              run: |
+                  body=$(jq -n --arg token "$AMP_WEBHOOK_TOKEN" --arg sha "$SHA" \
+                      '{payload: "update-main", data: $sha, SESSIONID: $token}')
+                  # CubeCoders' webhook post names the header "Authorize"; send the standard one too.
+                  curl -sS --fail-with-body -X POST "$AMP_WEBHOOK_URL" \
+                      -H "Content-Type: application/json" -H "Accept: application/json" \
+                      -H "Authorize: Bearer $AMP_WEBHOOK_TOKEN" -H "Authorization: Bearer $AMP_WEBHOOK_TOKEN" \
+                      --data "$body"
+                  echo
+                  mkdir -p .sent && echo "$SHA" > .sent/sha
+
+            - name: Remember the commit
+              if: steps.sent.outputs.cache-hit != 'true'
+              uses: actions/cache/save@v4
+              with:
+                  path: .sent
+                  key: tsps-staging-${{ steps.main.outputs.sha }}
