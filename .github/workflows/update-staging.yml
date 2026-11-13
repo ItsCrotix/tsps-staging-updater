@@ -41,12 +41,17 @@ jobs:
                   lookup-only: true
 
             - name: Call the AMP webhook
+              id: call
               if: steps.sent.outputs.cache-hit != 'true' || inputs.force
               env:
                   AMP_WEBHOOK_URL: ${{ secrets.AMP_WEBHOOK_URL }}
                   AMP_WEBHOOK_TOKEN: ${{ secrets.AMP_WEBHOOK_TOKEN }}
                   SHA: ${{ steps.main.outputs.sha }}
               run: |
+                  if [ -z "$AMP_WEBHOOK_URL" ] || [ -z "$AMP_WEBHOOK_TOKEN" ]; then
+                      echo "::warning::Add the AMP_WEBHOOK_URL and AMP_WEBHOOK_TOKEN secrets; nothing was sent."
+                      exit 0
+                  fi
                   body=$(jq -n --arg token "$AMP_WEBHOOK_TOKEN" --arg sha "$SHA" \
                       '{payload: "update-main", data: $sha, SESSIONID: $token}')
                   # CubeCoders' webhook post names the header "Authorize"; send the standard one too.
@@ -56,9 +61,10 @@ jobs:
                       --data "$body"
                   echo
                   mkdir -p .sent && echo "$SHA" > .sent/sha
+                  echo "sent=true" >> "$GITHUB_OUTPUT"
 
             - name: Remember the commit
-              if: steps.sent.outputs.cache-hit != 'true'
+              if: steps.call.outputs.sent == 'true' && steps.sent.outputs.cache-hit != 'true'
               uses: actions/cache/save@v4
               with:
                   path: .sent
