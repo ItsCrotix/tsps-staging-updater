@@ -64,11 +64,16 @@ jobs:
                   body=$(jq -n --arg token "$token" --arg sha "$SHA" \
                       '{payload: "update-main", data: $sha, SESSIONID: $token}')
                   # CubeCoders' webhook post names the header "Authorize"; send the standard one too.
-                  curl -sS --fail-with-body -X POST "$url" \
+                  response=$(curl -sS --fail-with-body -X POST "$url" \
                       -H "Content-Type: application/json" -H "Accept: application/json" \
                       -H "Authorize: Bearer $token" -H "Authorization: Bearer $token" \
-                      --data "$body"
-                  echo
+                      --data "$body") || { echo "$response"; exit 1; }
+                  echo "$response"
+                  # AMP answers HTTP 200 with {"Status": false, "Reason": ...} when it refuses.
+                  if printf '%s' "$response" | jq -e 'type == "object" and .Status == false' > /dev/null 2>&1; then
+                      echo "::error::AMP refused the webhook: $(printf '%s' "$response" | jq -r '.Reason // "no reason given"')"
+                      exit 1
+                  fi
                   mkdir -p .sent && echo "$SHA" > .sent/sha
                   echo "sent=true" >> "$GITHUB_OUTPUT"
 
