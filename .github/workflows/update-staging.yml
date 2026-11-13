@@ -52,12 +52,21 @@ jobs:
                       echo "::warning::Add the AMP_WEBHOOK_URL and AMP_WEBHOOK_TOKEN secrets; nothing was sent."
                       exit 0
                   fi
-                  body=$(jq -n --arg token "$AMP_WEBHOOK_TOKEN" --arg sha "$SHA" \
+                  # Pasted secrets often end in a newline; neither value may contain whitespace.
+                  url=$(printf '%s' "$AMP_WEBHOOK_URL" | tr -d '[:space:]')
+                  token=$(printf '%s' "$AMP_WEBHOOK_TOKEN" | tr -d '[:space:]')
+                  echo "::add-mask::$token"
+                  case "$url" in
+                      *'<'* | *'>'*) echo "::error::AMP_WEBHOOK_URL still contains < or >. Put the instance ID in without the brackets."; exit 1 ;;
+                      https://*/API/ADSModule/Servers/*/API/WebhookPlugin/TriggerWebhookEvent) ;;
+                      *) echo "::error::AMP_WEBHOOK_URL must look like https://<panel>/API/ADSModule/Servers/<instance id>/API/WebhookPlugin/TriggerWebhookEvent (it is ${#url} characters)."; exit 1 ;;
+                  esac
+                  body=$(jq -n --arg token "$token" --arg sha "$SHA" \
                       '{payload: "update-main", data: $sha, SESSIONID: $token}')
                   # CubeCoders' webhook post names the header "Authorize"; send the standard one too.
-                  curl -sS --fail-with-body -X POST "$AMP_WEBHOOK_URL" \
+                  curl -sS --fail-with-body -X POST "$url" \
                       -H "Content-Type: application/json" -H "Accept: application/json" \
-                      -H "Authorize: Bearer $AMP_WEBHOOK_TOKEN" -H "Authorization: Bearer $AMP_WEBHOOK_TOKEN" \
+                      -H "Authorize: Bearer $token" -H "Authorization: Bearer $token" \
                       --data "$body"
                   echo
                   mkdir -p .sent && echo "$SHA" > .sent/sha
